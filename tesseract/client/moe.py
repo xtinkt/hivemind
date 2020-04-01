@@ -240,9 +240,9 @@ class _RemoteMoECall(torch.autograd.Function):
 
         # compute grad w.r.t. logits
         grad_wrt_probs = sum(tuple(
-            torch.sum(grad_out[None, ...] * stacked_avive_out[backward_survivors_in_alive_ix],
-                      dim=tuple(range(1, stacked_avive_out.ndim)))
-            for grad_out, stacked_avive_out in zip(grad_outputs_flat, stacked_alive_outputs)
+            torch.sum(grad_out[None, ...] * stacked_alive_out[backward_survivors_in_alive_ix],
+                      dim=tuple(range(1, stacked_alive_out.ndim)))
+            for grad_out, stacked_alive_out in zip(grad_outputs_flat, stacked_alive_outputs)
         ))
         softmax_jacobian = torch.diagflat(survived_probas) - torch.ger(survived_probas, survived_probas)
         grad_wrt_logits = grad_wrt_probs @ softmax_jacobian
