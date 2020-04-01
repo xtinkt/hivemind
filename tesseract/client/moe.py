@@ -200,8 +200,8 @@ class _RemoteMoECall(torch.autograd.Function):
         jobs = [partial(cls._run_expert_forward, expert, *expert_args, **expert_kwargs) for expert in experts]
         results = run_and_await_k(jobs, k=k_min, timeout_after_k=timeout_after_k_min, timeout_total=timeout_total)
 
-        alive_contexts, alive_outputs, alive_ix = zip(*[(result[0], result[1], ix) for ix, result in enumerate(results)
-                                                        if not isinstance(result, BaseException)])
+        alive_contexts, alive_outputs, alive_ix = zip(
+            *[(result[0], result[1], ix) for ix, result in enumerate(results) if not isinstance(result, BaseException)])
         #     ^               ^            ^-- a list of indices of experts that returned outputs in time
         #      \               \-- list of outputs of every expert that didn't die on us
         #       \-- a list of autograd contexts, used for parallel backward
