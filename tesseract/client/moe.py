@@ -33,21 +33,21 @@ class RemoteMixtureOfExperts(nn.Module):
     :param timeout_after_k_min: waits for this many seconds after k_min experts returned results.
      Any expert that didn't manage to return output after that delay is considered unavailable
     :param expert_padding: internal value used to denote "absent expert". Should not coincide with any expert uid.
-    :param allow_broadcasting: if RemoteMixtureOfExperts if fed with input dimension above 2,
-     allow_broadcasting=True will flatten first d-1 input dimensions, apply RemoteMixtureOfExperts and un-flatten again
-     allow_broadcasting=False will raise an error
+
+    :note: if RemoteMixtureOfExperts if fed with input dimension above 2, it will flatten first d-1 input dimensions,
+     apply RemoteMixtureOfExperts and un-flatten again.
     """
     def __init__(self, *, in_features, grid_size: Tuple[int], network, k_best, k_min=1,
                  forward_timeout=None, timeout_after_k_min=1.0, backward_k_min=1, backward_timeout=None,
-                 uid_prefix='', expert_padding=None, allow_broadcasting=True):
+                 uid_prefix='', expert_padding=None):
         super().__init__()
         self.network, self.grid_size = network, grid_size
         self.uid_prefix, self.expert_padding = uid_prefix, expert_padding
         self.k_best, self.k_min, self.backward_k_min = k_best, k_min, backward_k_min
-        self.forward_timeout, self.timeout_after_k_min, self.backward_timeout = forward_timeout, timeout_after_k_min, backward_timeout
-        self.allow_broadcasting = allow_broadcasting
+        self.forward_timeout, self.timeout_after_k_min, self.backward_timeout = \
+            forward_timeout, timeout_after_k_min, backward_timeout
 
-        self.proj = nn.Linear(in_features, sum(grid_size))  # jointly predict logits for all grid dimensions
+        self.gating_function = nn.Linear(in_features, sum(grid_size))  # jointly predict logits for all grid dimensions
         self._outputs_schema = None
 
     def forward(self, input: torch.Tensor, *args: torch.Tensor, **kwargs: torch.Tensor):
@@ -58,7 +58,7 @@ class RemoteMixtureOfExperts(nn.Module):
         :param kwargs: extra keyword parameters that will be passed to each expert, batch-first
         :returns: averaged predictions of all experts that delivered result on time, nested structure of batch-first
         """
-        if self.allow_broadcasting and input.ndim != 2:
+        if input.ndim != 2:
             # flatten extra dimensions, apply the function and then un-flatten them back to normal like nn.Linear does
             flattened_dims = input.shape[:-1]
             input_flat = input.view(-1, input.shape[-1])
@@ -68,7 +68,7 @@ class RemoteMixtureOfExperts(nn.Module):
             return nested_map(lambda tensor: tensor.view(flattened_dims, tensor.shape[len(flattened_dims):]), out_flat)
 
         # 1. compute scores and find most appropriate experts with beam search
-        grid_scores = self.proj(input).split_with_sizes(self.grid_size, dim=-1)
+        grid_scores = self.gating_function(input).split_with_sizes(self.grid_size, dim=-1)
         chosen_experts = self.beam_search(grid_scores, self.k_best)
         # ^-- List[batch_size] of List[RemoteExpert] chosen for every input in batch
 
@@ -177,7 +177,7 @@ class RemoteMixtureOfExperts(nn.Module):
     def outputs_schema(self):
         if self._outputs_schema is None:
             # grab some expert to set ensemble output shape
-            dummy_scores = self.proj(torch.randn(1, self.proj.in_features)).split_with_sizes(self.grid_size, dim=-1)
+            dummy_scores = self.gating_function(torch.randn(1, self.gating_function.in_features)).split_with_sizes(self.grid_size, dim=-1)
             self._outputs_schema = self.beam_search(dummy_scores, k_best=1)[0][0].info['outputs_schema']
         return self._outputs_schema
 
